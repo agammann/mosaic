@@ -1,0 +1,13 @@
+name: Test
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node --test
+      - run: node mosaic.mjs examples/manifest.json examples/game game /tmp/game-credits examples/source
+      - run: node mosaic.mjs examples/manifest.json examples/book book /tmp/book-credits examples/source

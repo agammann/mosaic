@@ -1,0 +1,49 @@
+{
+  "assets": [
+    {
+      "id": "illustration",
+      "title": "Moon garden",
+      "creator": "Example Artist",
+      "source_url": "https://example.invalid/moon-garden",
+      "license": "CC-BY-4.0",
+      "evidence": "Synthetic license record",
+      "sha256": "f25691c122b01b48a2e3ab61a331409b4c7bd181384ca6a4a4775f5946e04cc0",
+      "source_path": "original.txt",
+      "evidence_path": "license.txt",
+      "evidence_sha256": "ca7515d6ff9ed6e8973fc8f2c0d9c5a4d8d7e326f1aaf7e113ae87b046a5bb51"
+    },
+    {
+      "id": "crop",
+      "title": "Moon garden crop",
+      "creator": "Example Editor",
+      "source_url": "https://example.invalid/crop",
+      "license": "CC-BY-4.0",
+      "evidence": "Synthetic adaptation record",
+      "sha256": "77b5d671debbf818d67f67ba1384c64986480d05f94385ab1218b8792666068d",
+      "derived_from": [
+        "illustration"
+      ],
+      "source_path": "crop.txt",
+      "evidence_path": "license.txt",
+      "evidence_sha256": "ca7515d6ff9ed6e8973fc8f2c0d9c5a4d8d7e326f1aaf7e113ae87b046a5bb51"
+    },
+    {
+      "id": "unused",
+      "title": "Unused sketch",
+      "creator": "Example Artist",
+      "source_url": "https://example.invalid/sketch",
+      "license": "CC-BY-4.0",
+      "evidence": "Synthetic license record",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  ],
+  "outputs": [
+    {
+      "path": "art.txt",
+      "assets": [
+        "crop"
+      ],
+      "page": 3
+    }
+  ]
+}
