@@ -1,0 +1,2 @@
+# The example manifest pins the SHA-256 of these files.
+examples/source/*.txt -text

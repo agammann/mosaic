@@ -1,34 +1,42 @@
 #!/usr/bin/env node
+import {createReadStream} from 'node:fs';
 import {readFile, readdir, lstat, realpath, open, unlink} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const hasText = value => typeof value === 'string' && value.trim().length > 0;
 function validatePath(value, label) {
   if (typeof value !== 'string' || !value || value.startsWith('/') || value.includes('\\') || value.includes(':') || value.split('/').some(x => !x || x === '.' || x === '..')) throw Error(`Invalid ${label} path: ${value}`);
 }
-async function safeRead(root, relative) {
+class NonRegularFileError extends Error {}
+
+async function hashFile(root, relative) {
   validatePath(relative, 'input');
   let current = path.resolve(root);
   if ((await lstat(current)).isSymbolicLink()) throw Error(`Symlink root not supported: ${current}`);
+  let stat;
   for (const component of relative.split('/')) {
     current = path.join(current, component);
-    const stat = await lstat(current);
+    stat = await lstat(current);
     if (stat.isSymbolicLink()) throw Error(`Symlink not supported: ${current}`);
   }
-  return readFile(current);
+  if (!stat.isFile()) throw new NonRegularFileError(`Expected a regular file: ${relative}`);
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(current)) hash.update(chunk);
+  return hash.digest('hex');
 }
-const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 async function verifyFile(root, filename, expected) {
   if (!filename) return {status:'missing-path'};
   validatePath(filename,'input');
   if (!root) return {path:filename,status:'missing-root'};
   try {
-    const sha256 = digest(await safeRead(root,filename));
+    const sha256 = await hashFile(root,filename);
     return {path:filename,sha256,status:!expected ? 'missing-expected-hash' : expected.toLowerCase() === sha256 ? 'matched' : 'hash-mismatch'};
   } catch (e) {
     if (e.code === 'ENOENT') return {path:filename,status:'missing-file'};
+    if (e instanceof NonRegularFileError) return {path:filename,status:'not-regular-file'};
     throw e;
   }
 }
@@ -67,7 +75,7 @@ export async function inspect(manifest, root, kind, sourceRoot) {
   }
   const credits = new Map(), outputs = [];
   for (const filename of shipped) {
-    const sha256 = digest(await safeRead(root,filename));
+    const sha256 = await hashFile(root,filename);
     const declared = mapping.get(filename);
     const ids = declared ? [...new Set(declared.assets.flatMap(id => lineage(id).map(a=>a.id)))] : [];
     for (const id of ids) credits.set(id, assets.get(id));
@@ -78,7 +86,7 @@ export async function inspect(manifest, root, kind, sourceRoot) {
   for (const o of manifest.outputs) if (!shipped.includes(o.path)) warnings.push(`missing output: ${o.path}`);
   const verification = [];
   for (const a of credits.values()) {
-    if (!a.creator || !a.source_url || !a.license || !a.evidence) warnings.push(`incomplete evidence: ${a.id}`);
+    if (![a.creator, a.source_url, a.license, a.evidence].every(hasText)) warnings.push(`incomplete evidence: ${a.id}`);
     const source = await verifyFile(sourceRoot,a.source_path,a.sha256);
     const evidence = await verifyFile(sourceRoot,a.evidence_path,a.evidence_sha256);
     verification.push({asset:a.id,source,evidence});
@@ -88,7 +96,8 @@ export async function inspect(manifest, root, kind, sourceRoot) {
   return {schema:'mosaic-report-2',adapter:kind,outputs,credits:[...credits.values()],verification,warnings};
 }
 export function html(report) {
-  const credits = report.credits.map(a=>`<li><strong>${esc(a.title || a.id)}</strong> — ${esc(a.creator || 'Creator unknown')}<br>License: ${esc(a.license || 'unknown')} · Source: ${esc(a.source_url || 'unknown')}<br>Evidence: ${esc(a.evidence || 'missing')}</li>`).join('\n');
+  const display = (value, fallback) => esc(hasText(value) ? value : fallback);
+  const credits = report.credits.map(a=>`<li><strong>${display(a.title, a.id)}</strong> — ${display(a.creator, 'Creator unknown')}<br>License: ${display(a.license, 'unknown')} · Source: ${display(a.source_url, 'unknown')}<br>Evidence: ${display(a.evidence, 'missing')}</li>`).join('\n');
   const warnings = report.warnings.map(w=>`<li>${esc(w)}</li>`).join('\n');
   return `<!doctype html><html lang="en"><meta charset="utf-8"><title>Release credits</title><style>body{font:16px/1.6 system-ui;max-width:48rem;margin:3rem auto;padding:0 1rem}li{margin:1rem 0}@media print{body{margin:0}}</style><h1>Release credits</h1><p>Based on declarations and files scanned. Review before publication.</p><ul>${credits}</ul><h2>Needs review</h2><ul>${warnings || '<li>None detected; declarations still require review.</li>'}</ul></html>`;
 }
