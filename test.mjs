@@ -14,6 +14,26 @@ test('cycles, missing references, traversal and duplicate paths fail',()=>fixtur
 test('HTML escapes declarations',()=>{assert.match(html({credits:[{id:'<script>'}],warnings:['<bad>']}),/&lt;script&gt;/)});
 test('source, evidence and shipped bytes are compared to declared hashes',()=>fixture(async d=>{const hash=createHash('sha256').update('synthetic').digest('hex');const a=asset('a',{source_path:'page.png',sha256:hash,evidence_path:'page.png',evidence_sha256:hash});const m={assets:[a],outputs:[{path:'page.png',assets:['a'],sha256:hash}]};let r=await inspect(m,d,'game',d);assert.equal(r.outputs[0].status,'mapped');assert.equal(r.verification[0].source.status,'matched');assert.equal(r.verification[0].evidence.status,'matched');await writeFile(path.join(d,'page.png'),'changed');r=await inspect(m,d,'game',d);assert.equal(r.outputs[0].status,'hash-mismatch');assert.equal(r.verification[0].source.status,'hash-mismatch');assert.equal(r.verification[0].evidence.status,'hash-mismatch')}));
 test('missing files, hashes and roots are explicit',()=>fixture(async d=>{const m={assets:[asset('a',{source_path:'missing',evidence_path:'page.png'})],outputs:[{path:'page.png',assets:['a']}]};let r=await inspect(m,d,'book',d);assert.equal(r.verification[0].source.status,'missing-file');assert.equal(r.verification[0].evidence.status,'missing-expected-hash');assert.equal(r.outputs[0].status,'missing-expected-hash');r=await inspect(m,d,'book');assert.equal(r.verification[0].source.status,'missing-root')}));
+
+test('a directory in an evidence declaration becomes a report warning', () => fixture(async d => {
+  await mkdir(path.join(d, 'records'));
+  const hash = createHash('sha256').update('synthetic').digest('hex');
+  const a = asset('a', {source_path:'page.png', sha256:hash, evidence_path:'records', evidence_sha256:hash});
+  const report = await inspect({assets:[a], outputs:[{path:'page.png', assets:['a'], sha256:hash}]}, d, 'book', d);
+  assert.equal(report.verification[0].source.status, 'matched');
+  assert.deepEqual(report.verification[0].evidence, {path:'records', status:'not-regular-file'});
+  assert.deepEqual(report.warnings, ['evidence not-regular-file: a']);
+}));
+
+test('blank and non-string declarations require review even when hashes match', () => fixture(async d => {
+  const hash = createHash('sha256').update('synthetic').digest('hex');
+  const a = asset('a', {creator:'   ', source_url:23, evidence:' ', source_path:'page.png', sha256:hash, evidence_path:'page.png', evidence_sha256:hash});
+  const report = await inspect({assets:[a], outputs:[{path:'page.png', assets:['a'], sha256:hash}]}, d, 'game', d);
+  assert.deepEqual(report.warnings, ['incomplete evidence: a']);
+  assert.equal(report.credits[0].creator, a.creator);
+  assert.match(html(report), /Creator unknown/);
+  assert.match(html(report), /Source: unknown/);
+}));
 test('source and evidence paths reject traversal and absolute or drive paths',()=>fixture(async d=>{for(const bad of ['../secret','/absolute','C:/secret','a\\b','a/../b']) {const m={assets:[asset('a',{source_path:bad})],outputs:[{path:'page.png',assets:['a']}]};await assert.rejects(inspect(m,d,'game',d),/Invalid input path/);m.assets[0].source_path='page.png';m.assets[0].evidence_path=bad;await assert.rejects(inspect(m,d,'game',d),/Invalid input path/)}}));
 test('symlink sources and shipped files are rejected',async t=>fixture(async d=>{const src=await mkdtemp(path.join(os.tmpdir(),'mosaic-src-'));try{await mkdir(path.join(src,'actual'));await writeFile(path.join(src,'actual','source'),'source');try{await symlink(path.join(src,'actual'),path.join(src,'link'),'junction')}catch(e){if(['EPERM','EACCES'].includes(e.code)){t.skip('symlink creation unavailable');return}throw e}const m={assets:[asset('a',{source_path:'link/source'})],outputs:[{path:'page.png',assets:['a']}]};await assert.rejects(inspect(m,d,'game',src),/Symlink/);await symlink(path.join(src,'actual'),path.join(d,'link'),'junction');await assert.rejects(inspect({assets:[],outputs:[]},d,'game',src),/Symlink/)}finally{await rm(src,{recursive:true,force:true})}}));
 test('existing JSON or HTML reports and manifest collisions preserve both files',async()=>{const d=await mkdtemp(path.join(os.tmpdir(),'mosaic-out-'));try{const root=path.join(d,'input');await mkdir(root);const report={credits:[],warnings:[]};for(const ext of ['json','html']){const prefix=path.join(d,`existing-${ext}`),original=prefix+'.'+ext;await writeFile(original,'original bytes');await assert.rejects(writeReports(prefix,report,[root]));assert.equal(await readFile(original,'utf8'),'original bytes');await assert.rejects(readFile(prefix+(ext==='json'?'.html':'.json')),e=>e.code==='ENOENT')}const manifest=path.join(d,'manifest.json');await writeFile(manifest,'manifest bytes');await assert.rejects(writeReports(path.join(d,'manifest'),report,[root]));assert.equal(await readFile(manifest,'utf8'),'manifest bytes')}finally{await rm(d,{recursive:true,force:true})}});
